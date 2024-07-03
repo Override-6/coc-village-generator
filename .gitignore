@@ -1,5 +1,6 @@
-/target
+**/target
 .ide
 out
 .idea
 runs
+assets

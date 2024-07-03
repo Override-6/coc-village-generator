@@ -12,7 +12,7 @@ use crate::label::{Bounds, Label};
 use crate::scenery::Scenery;
 use crate::village::Village;
 
-type Image = imageproc::definitions::Image<Rgba<u8>>;
+pub type Image = imageproc::definitions::Image<Rgba<u8>>;
 
 pub struct RenderedScenery {
     pub image: Image,
@@ -37,6 +37,8 @@ lazy_static! {
 pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, String> {
     let background_image = image::open("assets/scenery.png").unwrap();
     let mut buffer = background_image.into_rgba8();
+    
+    // buffer = draw_debug_grid(&buffer, scenery);
 
     let upper_left_corner_cell = Cell { x: 0, y: scenery.params().plate_height_cells as i16 };
 
@@ -92,14 +94,14 @@ fn render_building_image(scenery_image: &mut Image, scenery: &Scenery, building:
 
     let building_size = building_type.self_size();
 
-    let building_size_width = scenery.cell_width_radius() * building_size.cell_diameter() as f32;
+    let building_size_width = scenery.cell_width() * building_size.cell_diameter() as f32;
 
     let plot_size = building_type.plot_size();
 
-    let plot_size_width = scenery.cell_width_radius() * plot_size.cell_diameter() as f32;
-    let plot_size_height = scenery.cell_height_radius() * plot_size.cell_diameter() as f32;
+    let plot_size_width = scenery.cell_width() * plot_size.cell_diameter() as f32;
+    let plot_size_height = scenery.cell_height() * plot_size.cell_diameter() as f32;
 
-    let width_margin = if building_size == PlotSize::X1Invisible { 0f32 } else { scenery.cell_width_radius() };
+    let width_margin = if building_size == PlotSize::X1Invisible { 0f32 } else { scenery.cell_width() };
 
     let target_width = (building_size_width * 2f32 - width_margin) as u32;
 
@@ -125,7 +127,7 @@ fn render_building_image(scenery_image: &mut Image, scenery: &Scenery, building:
     let image_center_y = y + building_image.height() as i64 / 2 + building_image.height() as i64 / BUILDING_ALIGNMENT_SHIFT_Y;
 
     let translated_image_x = x + plot_center_x - image_center_x;
-    let translated_image_y = y + plot_center_y - image_center_y - (scenery.cell_height_radius() / 2f32) as i64;
+    let translated_image_y = y + plot_center_y - image_center_y - (scenery.cell_height() / 2f32) as i64;
 
     image::imageops::overlay(scenery_image, &building_image, translated_image_x, translated_image_y);
     #[cfg(debug_assertions)] {
@@ -153,8 +155,8 @@ fn draw_plot(scenery_image: &mut Image, scenery: &Scenery, plot_size: PlotSize, 
     let plot = image::open(plot_file).unwrap();
     let plot = plot.as_rgba8().unwrap();
 
-    let width_radius = (scenery.cell_width_radius() * plot_size.cell_diameter() as f32) as u32;
-    let height_radius = (scenery.cell_height_radius() * plot_size.cell_diameter() as f32) as u32;
+    let width_radius = (scenery.cell_width() * plot_size.cell_diameter() as f32) as u32;
+    let height_radius = (scenery.cell_height() * plot_size.cell_diameter() as f32) as u32;
 
     let resized_image = image::imageops::resize(
         plot,
@@ -193,8 +195,8 @@ fn draw_debug_grid(buffer: &Image, scenery: &Scenery) -> Image {
 }
 
 fn get_plate_pixel_position(cell: Cell, scenery: &Scenery) -> (i64, i64) {
-    let left_corner_x = scenery.get_plate_x_axis(cell.x as f32 * scenery.cell_height_radius(), cell.y as f32 * scenery.cell_width_radius());
-    let left_corner_y = scenery.get_plate_y_axis(cell.x as f32 * scenery.cell_height_radius(), cell.y as f32 * scenery.cell_width_radius());
+    let left_corner_x = scenery.get_plate_x_axis(cell.x as f32 * scenery.cell_height(), cell.y as f32 * scenery.cell_width() - 3f32);
+    let left_corner_y = scenery.get_plate_y_axis(cell.x as f32 * scenery.cell_height(), cell.y as f32 * scenery.cell_width() - 3f32);
 
     (left_corner_x as i64, left_corner_y as i64)
 }
@@ -202,8 +204,8 @@ fn get_plate_pixel_position(cell: Cell, scenery: &Scenery) -> (i64, i64) {
 fn draw_cell<I: GenericImage>(image: &I, scenery: &Scenery, cell: Cell, color: I::Pixel) -> imageproc::definitions::Image<I::Pixel> {
     let (left_corner_x, left_corner_y) = get_plate_pixel_position(cell, scenery);
 
-    let cell_width = scenery.cell_width_radius();
-    let cell_height = scenery.cell_height_radius();
+    let cell_width = scenery.cell_width();
+    let cell_height = scenery.cell_height();
 
     let poly = [
         Point::new(left_corner_x as i32, left_corner_y as i32),

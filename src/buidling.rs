@@ -157,10 +157,9 @@ pub enum BuildingType {
     #[assoc(plot_size = PlotSize::X4)]
     #[assoc(level_range = 3..=7)]
     Workshop,
-
 }
 
-pub const BUILDING_ASSETS_FOLDER: &str = "datasets/buildings/images/train";
+pub const BUILDING_ASSETS_FOLDER: &str = "buildings";
 
 impl BuildingType {
     pub fn get_file_path(&self, level: u8) -> String {

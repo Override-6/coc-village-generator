@@ -1,0 +1,10 @@
+[package]
+name = "sprite_mess_generator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.20.1"
+image = "0.25.1"
+pollster = "0.3.0"
+tokio = { version = "1.38.0", features = ["full"] }
