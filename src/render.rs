@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
-
+use std::collections::HashMap;
+use ab_glyph::FontRef;
 use image::{GenericImage, GenericImageView, Pixel, Rgb, Rgba};
 use image::imageops::FilterType;
 use imageproc::drawing;
 use imageproc::point::Point;
 use lazy_static::lazy_static;
-
+use rand::Rng;
+use crate::attack_simulation::{EvolutionLog, TroopId};
 use crate::buidling::{Building, BUILDING_ASSETS_FOLDER, PlotSize};
 use crate::cell::Cell;
 use crate::label::{Bounds, Label};
@@ -22,7 +24,6 @@ pub struct RenderedScenery {
 lazy_static! {
     pub static ref BUILDINGS_ASSETS_FILENAMES: Vec<String> = std::fs::read_dir(BUILDING_ASSETS_FOLDER)
         .unwrap()
-        .into_iter()
         .map(|file| file
             .unwrap()
             .path()
@@ -34,18 +35,51 @@ lazy_static! {
         .collect();
 }
 
+pub fn render_logs(mut scenery_image: Image, scenery: &Scenery, logs: Vec<EvolutionLog>) -> Result<Image, String> {
+    
+    let mut troops_colors: HashMap<TroopId, Rgba<u8>> = HashMap::new();
+    
+    for log in logs {
+        for (troop, path) in log.troops_paths {
+            let color = *troops_colors.entry(troop).or_insert_with(|| rand_color().to_rgba());
+            
+            if let Some((first, others)) = path.split_first() {
+
+                let (mut last_pixel_x, mut last_pixel_y) = get_plate_pixel_position(*first, scenery);
+                
+                for item in others {
+
+                    let (pixel_x, pixel_y) = get_plate_pixel_position(*item, scenery);
+                    
+                    scenery_image = drawing::draw_line_segment(&scenery_image, (last_pixel_x as f32, last_pixel_y as f32), (pixel_x as f32, pixel_y as f32), color);
+                    
+                    last_pixel_x = pixel_x;
+                    last_pixel_y = pixel_y;
+                }
+            }
+        }
+    }
+    
+    Ok(scenery_image)
+}
+
+fn rand_color() -> Rgb<u8> {
+    let mut rng = rand::thread_rng();
+    Rgb([rng.gen(), rng.gen(), rng.gen()])
+}
+
 pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, String> {
     let background_image = image::open("assets/scenery.png").unwrap();
     let mut buffer = background_image.into_rgba8();
-    
+
     // buffer = draw_debug_grid(&buffer, scenery);
 
     let upper_left_corner_cell = Cell { x: 0, y: scenery.params().plate_height_cells as i16 };
 
     let mut buildings = village.iter_buildings().collect::<Vec<_>>();
     buildings.sort_by(|b1, b2| {
-        let b1 = b1.pos;
-        let b2 = b2.pos;
+        let b1 = b1.1.pos;
+        let b2 = b2.1.pos;
 
         let distance_b1 = (((upper_left_corner_cell.x - b1.x) as f32).powi(2) + ((upper_left_corner_cell.y - b1.y) as f32).powi(2)).sqrt();
         let distance_b2 = (((upper_left_corner_cell.x - b2.x) as f32).powi(2) + ((upper_left_corner_cell.y - b2.y) as f32).powi(2)).sqrt();
@@ -59,15 +93,15 @@ pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, S
         }
     });
 
-    for building in buildings.clone() {
+    for (_, building) in buildings.clone() {
         draw_plot(&mut buffer, scenery, building.building_type.plot_size(), building.pos);
     }
 
     let mut labels = Vec::new();
 
 
-    for building in buildings {
-        let bounds = render_building_image(&mut buffer, scenery, building);
+    for (_, building) in buildings {
+        let bounds = render_building(&mut buffer, scenery, building);
         let class = BUILDINGS_ASSETS_FILENAMES.iter().position(|filename| filename == &building.building_type.get_file_name(building.level)).unwrap();
 
         labels.push(Label {
@@ -84,7 +118,8 @@ pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, S
 
 const BUILDING_ALIGNMENT_SHIFT_Y: i64 = 5;
 
-fn render_building_image(scenery_image: &mut Image, scenery: &Scenery, building: &Building) -> Bounds {
+
+fn render_building(scenery_image: &mut Image, scenery: &Scenery, building: &Building) -> Bounds {
     let building_type = &building.building_type;
     let cell = building.pos;
 
@@ -139,6 +174,18 @@ fn render_building_image(scenery_image: &mut Image, scenery: &Scenery, building:
 
     let x_center_pixels = translated_image_x + building_image.width() as i64 / 2;
     let y_center_pixels = translated_image_y + building_image.height() as i64 / 2;
+
+    if let Some(lp) = building.life_points {
+        let font = FontRef::try_from_slice(include_bytes!("../assets/font.ttf")).unwrap();
+
+        let (color, text) = if lp == 0.0 {
+            (Rgba([255, 0, 0, 255]), "DEAD".to_string())
+        } else {
+            (Rgba([255, 255, 255, 255]), lp.to_string())
+        };
+
+        *scenery_image = drawing::draw_text(scenery_image, color, plot_center_x as i32, plot_center_y as i32, 20.0, &font, &text);
+    }
 
     Bounds {
         x_center: x_center_pixels as f32 / scenery_image.width() as f32,

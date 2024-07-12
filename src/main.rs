@@ -1,21 +1,24 @@
 use std::env::current_dir;
-use std::fs::{FileType, OpenOptions};
+use std::fs::OpenOptions;
 use std::future::Future;
 use std::io::Write;
 
+use clap::Parser;
 use image::{GenericImage, Pixel, Rgba};
 use imageproc::drawing::Canvas;
 use lazy_static::lazy_static;
 use rand::distributions::Distribution;
 use rand::Rng;
-use tokio::task::{JoinError, JoinSet};
-use clap::Parser;
+use tokio::task::JoinSet;
+
 use crate::assets_render::Asset;
-use crate::buidling::{ArcherDefenceState, Building, BuildingType, MissileDefenceState};
+use crate::attack_simulation::AttackPlan;
+use crate::buidling::{ArcherDefenceState, Building, BuildingCharacteristics, BuildingType, MissileDefenceState};
 use crate::cell::Cell;
 use crate::label::Bounds;
-use crate::render::{BUILDINGS_ASSETS_FILENAMES, Image, render, RenderedScenery};
+use crate::render::{BUILDINGS_ASSETS_FILENAMES, Image, render, render_logs, RenderedScenery};
 use crate::scenery::{default_scenery, Scenery};
+use crate::troop::{Troop, TroopType};
 use crate::village::{Village, VillageOperationError, VillageOperationResult};
 
 mod buidling;
@@ -25,18 +28,58 @@ mod village;
 mod render;
 mod label;
 mod assets_render;
+mod attack_simulation;
+mod troop;
+mod pathfinding;
+mod position;
 
 const IMAGE_COUNT: usize = 20000;
 
-#[derive(Parser, Debug)]
-struct Args {
-
-}
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 20)]
 async fn main() {
     // village_generation().await;
-    assets_mess_generation().await;
+    // assets_mess_generation().await;
+    village_attack_simulation().await;
+}
+
+async fn village_attack_simulation() {
+    let village = create_village().unwrap();
+    
+    let attack_plan = AttackPlan {
+        initial_placements: vec![
+            Troop {
+                tpe: TroopType::Barbarian,
+                pos: Cell::new(21, 21),
+            },
+            Troop {
+                tpe: TroopType::Barbarian,
+                pos: Cell::new(0, 21),
+            },
+            Troop {
+                tpe: TroopType::Giant,
+                pos: Cell::new(0, 0),
+            },
+            Troop {
+                tpe: TroopType::Giant,
+                pos: Cell::new(44, 21),
+            },
+            Troop {
+                tpe: TroopType::Barbarian,
+                pos: Cell::new(44, 44),
+            }
+        ]
+    };
+    let scenery = default_scenery();
+    
+    let simulation_result = attack_simulation::simulate_attack(60, &village, &attack_plan, &scenery);
+    
+    let mut render_result = render(&scenery, &simulation_result.village).unwrap();
+    
+    render_result.image = render_logs(render_result.image, &scenery, simulation_result.evolution_logs).unwrap();
+    
+    
+    render_result.image.save("out/simulations/simulation.png").unwrap();
 }
 
 lazy_static! {
@@ -229,12 +272,13 @@ fn generate_village(scenery: &Scenery) -> VillageOperationResult<Village> {
                 building_type,
                 level,
                 pos,
+                life_points: Some(0f32),
+                characteristics: BuildingCharacteristics::Passive
             };
 
             match village.add_building(building) {
-                Ok(()) => {}
+                Ok(_) => {}
                 Err(VillageOperationError::BuildingCollides) => {} //do not panic if the building collides with another one
-                other => other.unwrap() //force panic
             };
         }
     }
@@ -250,48 +294,64 @@ fn create_village() -> VillageOperationResult<Village> {
         building_type: BuildingType::ArmyCamp,
         pos: Cell::new(20, 15),
         level: 3,
+        life_points: Some(400f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::Mortar(MissileDefenceState::Regular),
         pos: Cell::new(3, 6),
         level: 13,
+        life_points: Some(250f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::BuilderHut,
-        pos: Cell::new(0, 0),
+        pos: Cell::new(0, 1),
         level: 1,
+        life_points: Some(360f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::ArcherTower(ArcherDefenceState::Regular),
         pos: Cell::new(8, 15),
         level: 12,
+        life_points: Some(1000f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::HiddenTesla,
         pos: Cell::new(7, 12),
         level: 9,
+        life_points: Some(780f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::HiddenTesla,
         pos: Cell::new(43, 43),
         level: 9,
+        life_points: Some(210f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::HiddenTesla,
         pos: Cell::new(3, 3),
         level: 9,
+        life_points: Some(47f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     village.add_building(Building {
         building_type: BuildingType::TownHall,
         pos: Cell::new(20, 35),
         level: 11,
+        life_points: Some(186f32),
+        characteristics: BuildingCharacteristics::Passive
     })?;
 
     Ok(village)

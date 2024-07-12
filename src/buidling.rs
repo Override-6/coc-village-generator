@@ -369,9 +369,30 @@ impl DefenceState for ScattershotState {
     }
 }
 
+#[derive(Clone)]
 pub struct Building {
     pub building_type: BuildingType,
     pub pos: Cell,
     pub level: u8,
+    pub life_points: Option<f32>,
+    pub characteristics: BuildingCharacteristics
+}
+
+impl Building {
+    pub fn is_destroyed(&self) -> bool {
+        self.life_points.is_some_and(|lp| lp == 0f32)
+    }
+}
+
+#[derive(Clone)]
+pub enum BuildingCharacteristics {
+    Passive,
+    Defense(DefenceCharacteristics)
+}
+
+#[derive(Clone)]
+pub struct DefenceCharacteristics {
+    range: f32,
+    damage_per_seconds: f32
 }
 
