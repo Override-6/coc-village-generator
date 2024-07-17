@@ -4,3 +4,4 @@ out
 .idea
 runs
 assets
+*.pt

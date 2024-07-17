@@ -2,15 +2,15 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 use std::collections::HashMap;
 
-use crate::buidling::{Building, BuildingCharacteristics};
 use crate::cell::Cell;
+use crate::position::Pos;
 use crate::scenery::Scenery;
 use crate::troop::Troop;
-use crate::village::{BuildingId, Village};
+use crate::village::{Component, ComponentId, is_defensive_building, Village};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Node {
-    position: Cell,
+    position: Pos,
     cost: i32,
 }
 
@@ -26,18 +26,30 @@ impl Ord for Node {
     }
 }
 
-fn neighbors(point: Cell, width: i16, height: i16) -> Vec<Cell> {
+fn neighbors(point: Pos, width: i16, height: i16) -> Vec<Pos> {
     let mut result = vec![];
 
     let potential_neighbors = vec![
-        Cell { x: point.x + 1, y: point.y },
-        Cell { x: point.x - 1, y: point.y },
-        Cell { x: point.x, y: point.y + 1 },
-        Cell { x: point.x, y: point.y - 1 },
+        Pos {
+            x: point.x + 1.0,
+            y: point.y,
+        },
+        Pos {
+            x: point.x - 1.0,
+            y: point.y,
+        },
+        Pos {
+            x: point.x,
+            y: point.y + 1.0,
+        },
+        Pos {
+            x: point.x,
+            y: point.y - 1.0,
+        },
     ];
 
     for neighbor in potential_neighbors {
-        if neighbor.x >= 0 && neighbor.x <= width && neighbor.y >= 0 && neighbor.y <= height {
+        if neighbor.x >= 0.0 && neighbor.x <= width as f32 && neighbor.y >= 0.0 && neighbor.y <= height as f32 {
             result.push(neighbor);
         }
     }
@@ -45,7 +57,7 @@ fn neighbors(point: Cell, width: i16, height: i16) -> Vec<Cell> {
     result
 }
 
-fn reconstruct_path(came_from: &HashMap<Cell, Cell>, current: Cell) -> Vec<Cell> {
+fn reconstruct_path(came_from: &HashMap<Pos, Pos>, current: Pos) -> Vec<Pos> {
     let mut path = vec![current];
     let mut current = current;
     while let Some(&previous) = came_from.get(&current) {
@@ -56,7 +68,7 @@ fn reconstruct_path(came_from: &HashMap<Cell, Cell>, current: Cell) -> Vec<Cell>
     path
 }
 
-fn pathfind(start: Cell, goal: Cell, village: &Village, scenery: &Scenery) -> Vec<Cell> {
+fn pathfind(start: Pos, goal: Pos, village: &Village, scenery: &Scenery) -> Vec<Pos> {
     let width = scenery.params().plate_width_cells as i16;
     let height = scenery.params().plate_height_cells as i16;
 
@@ -66,13 +78,16 @@ fn pathfind(start: Cell, goal: Cell, village: &Village, scenery: &Scenery) -> Ve
         cost: 0,
     });
 
-    let mut came_from: HashMap<Cell, Cell> = HashMap::new();
-    let mut g_score: HashMap<Cell, i32> = HashMap::new();
-    let mut closed_set: HashSet<Cell> = HashSet::new();
+    let mut came_from: HashMap<Pos, Pos> = HashMap::new();
+    let mut g_score: HashMap<Pos, i32> = HashMap::new();
+    let mut closed_set: HashSet<Pos> = HashSet::new();
 
     g_score.insert(start, 0);
 
-    while let Some(Node { position: current, .. }) = open_set.pop() {
+    while let Some(Node {
+        position: current, ..
+    }) = open_set.pop()
+    {
         if current == goal {
             return reconstruct_path(&came_from, current);
         }
@@ -80,7 +95,9 @@ fn pathfind(start: Cell, goal: Cell, village: &Village, scenery: &Scenery) -> Ve
         closed_set.insert(current);
 
         for neighbor in neighbors(current, width, height) {
-            if goal != neighbor && (closed_set.contains(&neighbor) || village.is_cell_blocked(neighbor)) {
+            if goal != neighbor
+                && (closed_set.contains(&neighbor) || village.is_cell_blocked(neighbor.to_cell()))
+            {
                 continue;
             }
 
@@ -99,61 +116,65 @@ fn pathfind(start: Cell, goal: Cell, village: &Village, scenery: &Scenery) -> Ve
     vec![]
 }
 
-
-fn list_cells_of_building(building: &Building) -> Vec<Cell> {
-    let pos = building.pos;
-    let building_diameter = building.building_type.plot_size().cell_diameter();
+fn list_cells_of_component(cell: Cell, comp: &Component) -> Vec<Cell> {
+    let building_diameter = comp.get_plot_size().cell_diameter();
 
     let mut cells = Vec::new();
 
     for x in 0..building_diameter {
         for y in 0..building_diameter {
-            cells.push(Cell { x: pos.x + x as i16, y: pos.y + y as i16 });
+            cells.push(Cell {
+                x: cell.x + x as i16,
+                y: cell.y + y as i16,
+            });
         }
     }
 
     cells
 }
 
-pub fn find_route_to_next_building(troop: &Troop, village: &Village, scenery: &Scenery) -> Option<(Vec<Cell>, BuildingId)> {
+pub fn find_route_to_next_building(
+    troop: &Troop,
+    village: &Village,
+    scenery: &Scenery,
+) -> Option<(Vec<Pos>, ComponentId)> {
     #[derive(Copy, Clone)]
     struct ClosestBuildingCellInfo {
-        id: BuildingId,
-        cell: Cell,
+        id: ComponentId,
+        pos: Pos,
         distance: f32,
     }
 
     let mut closest_building: Option<ClosestBuildingCellInfo> = None;
 
     // find the closest building cell
-    for (building_id, building) in village.iter_buildings() {
-        if building.life_points.is_some_and(|lp| lp == 0f32) {
+    for (comp_id, cell, comp) in village.iter_components() {
+        if comp.life_points.is_some_and(|lp| lp == 0f32) {
             continue; //ignore dead buildings
         }
-
-        match building.characteristics {
-            BuildingCharacteristics::Passive => {
-                //if there is no defense left, then target other buildings
-                if village.state().remaining_defenses > 0 && troop.tpe.prefer_defenses() {
-                    continue;
-                }
-            }
-            BuildingCharacteristics::Defense(_) => {}
+        
+        if village.state().remaining_defenses > 0 && is_defensive_building(comp) {
+            //if there is no defense left, then target other buildings
+            continue
         }
 
-        for building_cell in list_cells_of_building(building) {
-            let distance = building_cell.distance(troop.pos);
-            if closest_building.is_none() || closest_building.is_some_and(|b| distance < b.distance) {
+        for building_cell in list_cells_of_component(cell, comp) {
+            let distance = building_cell.to_pos().distance(troop.pos);
+            if closest_building.is_none() || closest_building.is_some_and(|b| distance < b.distance)
+            {
                 closest_building = Some(ClosestBuildingCellInfo {
                     distance,
-                    id: building_id,
-                    cell: building_cell,
+                    id: comp_id,
+                    pos: building_cell.to_pos(),
                 });
             }
         }
     }
 
     closest_building.map(|closest_building| {
-        (pathfind(troop.pos, closest_building.cell, village, scenery), closest_building.id)
+        (
+            pathfind(troop.pos, closest_building.pos, village, scenery),
+            closest_building.id,
+        )
     })
 }

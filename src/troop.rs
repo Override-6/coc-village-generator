@@ -1,12 +1,12 @@
 use enum_assoc::Assoc;
 use image::Rgb;
 
-use crate::cell::Cell;
+use crate::position::Pos;
 
 #[derive(Clone)]
 pub struct Troop {
     pub tpe: TroopType,
-    pub pos: Cell,
+    pub pos: Pos,
 }
 
 #[derive(Assoc, Clone)]
@@ -35,4 +35,3 @@ pub enum TroopType {
     #[assoc(color = Rgb([0, 0, 255]))]
     Giant,
 }
-

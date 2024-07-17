@@ -1,5 +1,7 @@
 use imageproc::point::Point;
 
+
+#[derive(Clone)]
 pub struct SceneryParams {
     pub image_path: String,
     pub bottom_left_corner: Point<i32>,
@@ -12,6 +14,7 @@ pub struct SceneryParams {
     pub base_cell_position: Point<i32>,
 }
 
+#[derive(Clone)]
 pub struct Scenery {
     params: SceneryParams,
 
@@ -20,11 +23,19 @@ pub struct Scenery {
     cell_height: f32,
 }
 
+impl Default for Scenery {
+    fn default() -> Self {
+        default_scenery()
+    }
+}
+
 impl From<SceneryParams> for Scenery {
     fn from(value: SceneryParams) -> Self {
         Self {
-            cell_width: (value.bottom_right_corner.x - value.bottom_left_corner.x) as f32 / value.plate_width_cells as f32,
-            cell_height: (value.upper_right_corner.y - value.upper_left_corner.y) as f32 / value.plate_height_cells as f32,
+            cell_width: (value.bottom_right_corner.x - value.bottom_left_corner.x) as f32
+                / value.plate_width_cells as f32,
+            cell_height: (value.upper_right_corner.y - value.upper_left_corner.y) as f32
+                / value.plate_height_cells as f32,
             params: value,
         }
     }
@@ -40,13 +51,14 @@ impl Scenery {
     pub fn cell_height(&self) -> f32 {
         self.cell_height
     }
-    
+
     pub fn get_plate_x_axis(&self, x: f32, y: f32) -> f32 {
-        let x_change = (self.params.bottom_left_corner.x - self.params.bottom_right_corner.x) as f32;
-        let y_change = (self.params.bottom_left_corner.y - self.params.bottom_right_corner.y) as f32;
+        let x_change =
+            (self.params.bottom_left_corner.x - self.params.bottom_right_corner.x) as f32;
+        let y_change =
+            (self.params.bottom_left_corner.y - self.params.bottom_right_corner.y) as f32;
 
         let gradient = x_change / y_change;
-
 
         self.params.base_cell_position.x as f32 + (gradient * x) + y
     }
@@ -61,7 +73,7 @@ impl Scenery {
     }
 }
 
-pub fn default_scenery() -> Scenery {
+fn default_scenery() -> Scenery {
     let bottom_left_corner = Point { x: 229, y: 910 };
     let upper_left_corner = Point { x: 1215, y: 173 };
     let upper_right_corner = Point { x: 2200, y: 910 };

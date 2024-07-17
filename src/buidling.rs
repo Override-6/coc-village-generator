@@ -1,8 +1,7 @@
 use std::ops::RangeInclusive;
+
 use enum_assoc::Assoc;
 use rand_derive2::RandGen;
-use crate::cell::Cell;
-
 
 #[derive(Assoc, Clone, RandGen)]
 #[func(pub fn name(& self) -> & 'static str)]
@@ -182,17 +181,23 @@ impl BuildingType {
             BuildingType::Mortar(state) => self.make_file_name(Some(level), Some(*state)),
             BuildingType::Scattershot(state) => self.make_file_name(Some(level), Some(*state)),
             BuildingType::SpellFactory(state) => self.make_file_name(Some(level), Some(*state)),
-            BuildingType::BuilderHut if level == 1 => self.make_file_name(None, None::<ArcherDefenceState>),
+            BuildingType::BuilderHut if level == 1 => {
+                self.make_file_name(None, None::<ArcherDefenceState>)
+            }
             BuildingType::TownHall if level >= 12 && level < 16 => {
                 self.make_file_name(Some(level), Some("-1"))
             }
-            _ => self.make_file_name(Some(level), None::<ArcherDefenceState>)
+            _ => self.make_file_name(Some(level), None::<ArcherDefenceState>),
         }
     }
 
     fn make_file_name(&self, level: Option<u8>, state: Option<impl DefenceState>) -> String {
         let level_str = level.map(|lvl| lvl.to_string()).unwrap_or_default();
-        format!("{}{level_str}{}.png", self.name(), state.map(DefenceState::get_as_suffix).unwrap_or(""))
+        format!(
+            "{}{level_str}{}.png",
+            self.name(),
+            state.map(DefenceState::get_as_suffix).unwrap_or("")
+        )
     }
 }
 
@@ -237,7 +242,6 @@ pub enum ArcherDefenceState {
     // ShortRange,
 }
 
-
 impl DefenceState for ArcherDefenceState {
     fn get_as_suffix(self) -> &'static str {
         match self {
@@ -279,11 +283,10 @@ impl DefenceState for EagleArtilleryState {
         match self {
             EagleArtilleryState::Loaded => "",
             EagleArtilleryState::HeadDown => "_Head_Down",
-            EagleArtilleryState::Unloaded => "_Unloaded"
+            EagleArtilleryState::Unloaded => "_Unloaded",
         }
     }
 }
-
 
 #[derive(Default, Copy, Clone, RandGen)]
 pub enum SpellFactoryState {
@@ -296,11 +299,10 @@ impl DefenceState for SpellFactoryState {
     fn get_as_suffix(self) -> &'static str {
         match self {
             SpellFactoryState::Inactive => "",
-            SpellFactoryState::Active => "_Active"
+            SpellFactoryState::Active => "_Active",
         }
     }
 }
-
 
 #[derive(Default, Copy, Clone, RandGen)]
 pub enum ContainerState {
@@ -329,7 +331,7 @@ impl DefenceState for ExplosiveState {
     fn get_as_suffix(self) -> &'static str {
         match self {
             ExplosiveState::Armed => "",
-            ExplosiveState::Unarmed => "_unarmed"
+            ExplosiveState::Unarmed => "_unarmed",
         }
     }
 }
@@ -372,27 +374,19 @@ impl DefenceState for ScattershotState {
 #[derive(Clone)]
 pub struct Building {
     pub building_type: BuildingType,
-    pub pos: Cell,
     pub level: u8,
-    pub life_points: Option<f32>,
-    pub characteristics: BuildingCharacteristics
+    pub characteristics: BuildingCharacteristics,
 }
 
-impl Building {
-    pub fn is_destroyed(&self) -> bool {
-        self.life_points.is_some_and(|lp| lp == 0f32)
-    }
-}
 
 #[derive(Clone)]
 pub enum BuildingCharacteristics {
     Passive,
-    Defense(DefenceCharacteristics)
+    Defense(DefenceCharacteristics),
 }
 
 #[derive(Clone)]
 pub struct DefenceCharacteristics {
     range: f32,
-    damage_per_seconds: f32
+    damage_per_seconds: f32,
 }
-

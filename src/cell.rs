@@ -12,7 +12,10 @@ impl Cell {
     }
 
     pub fn to_pos(&self) -> Pos {
-        Pos { x: self.x as f32, y: self.y as f32 }
+        Pos {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
     }
 
     pub fn distance(&self, other: Cell) -> f32 {

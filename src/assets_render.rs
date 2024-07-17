@@ -1,8 +1,7 @@
 use image::imageops::FilterType;
 use image::RgbaImage;
-use imageproc::drawing::Canvas;
 use rand::Rng;
-use crate::cell::Cell;
+
 use crate::label::{Bounds, Label};
 use crate::render::RenderedScenery;
 use crate::scenery::Scenery;
@@ -52,7 +51,6 @@ pub fn render(img: RgbaImage, assets: &[&Asset]) -> Result<RenderedScenery, Stri
         })
     }
 
-
     Ok(RenderedScenery {
         image: buff,
         labels,
@@ -60,8 +58,10 @@ pub fn render(img: RgbaImage, assets: &[&Asset]) -> Result<RenderedScenery, Stri
 }
 
 fn get_plate_pixel_position(x: f32, y: f32, scenery: &Scenery) -> (i64, i64) {
-    let left_corner_x = scenery.get_plate_x_axis(x * scenery.cell_height(), y * scenery.cell_width());
-    let left_corner_y = scenery.get_plate_y_axis(x * scenery.cell_height(), y * scenery.cell_width());
+    let left_corner_x =
+        scenery.get_plate_x_axis(x * scenery.cell_height(), y * scenery.cell_width());
+    let left_corner_y =
+        scenery.get_plate_y_axis(x * scenery.cell_height(), y * scenery.cell_width());
 
     (left_corner_x as i64, left_corner_y as i64)
 }

@@ -1,6 +1,6 @@
+use crate::cell::Cell;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-use crate::cell::Cell;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Pos {
@@ -22,7 +22,10 @@ impl Pos {
     }
 
     pub fn to_cell(&self) -> Cell {
-        Cell { x: self.x as i16, y: self.y as i16 }
+        Cell {
+            x: self.x as i16,
+            y: self.y as i16,
+        }
     }
 
     pub fn distance(&self, other: Pos) -> f32 {

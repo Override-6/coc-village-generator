@@ -1,18 +1,25 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use ab_glyph::FontRef;
+
 use image::{GenericImage, GenericImageView, Pixel, Rgb, Rgba};
 use image::imageops::FilterType;
 use imageproc::drawing;
 use imageproc::point::Point;
 use lazy_static::lazy_static;
 use rand::Rng;
+
 use crate::attack_simulation::{EvolutionLog, TroopId};
-use crate::buidling::{Building, BUILDING_ASSETS_FOLDER, PlotSize};
+use crate::buidling::BUILDING_ASSETS_FOLDER;
 use crate::cell::Cell;
-use crate::label::{Bounds, Label};
+use crate::label::Label;
+use crate::position::Pos;
+use crate::render::building::{draw_plot, render_building};
+use crate::render::wall::render_wall;
 use crate::scenery::Scenery;
-use crate::village::Village;
+use crate::village::{Component, ComponentType, Village};
+
+mod building;
+mod wall;
 
 pub type Image = imageproc::definitions::Image<Rgba<u8>>;
 
@@ -22,44 +29,54 @@ pub struct RenderedScenery {
 }
 
 lazy_static! {
-    pub static ref BUILDINGS_ASSETS_FILENAMES: Vec<String> = std::fs::read_dir(BUILDING_ASSETS_FOLDER)
-        .unwrap()
-        .map(|file| file
+    pub static ref BUILDINGS_ASSETS_FILENAMES: Vec<String> =
+        std::fs::read_dir(BUILDING_ASSETS_FOLDER)
             .unwrap()
-            .path()
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string())
-        .collect();
+            .map(|file| file
+                .unwrap()
+                .path()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string())
+            .collect();
 }
 
-pub fn render_logs(mut scenery_image: Image, scenery: &Scenery, logs: Vec<EvolutionLog>) -> Result<Image, String> {
-    
+pub fn render_logs(
+    mut scenery_image: Image,
+    scenery: &Scenery,
+    logs: Vec<EvolutionLog>,
+) -> Result<Image, String> {
     let mut troops_colors: HashMap<TroopId, Rgba<u8>> = HashMap::new();
-    
+
     for log in logs {
         for (troop, path) in log.troops_paths {
-            let color = *troops_colors.entry(troop).or_insert_with(|| rand_color().to_rgba());
-            
+            let color = *troops_colors
+                .entry(troop)
+                .or_insert_with(|| rand_color().to_rgba());
+
             if let Some((first, others)) = path.split_first() {
+                let (mut last_pixel_x, mut last_pixel_y) =
+                    get_plate_pixel_position(*first, scenery);
 
-                let (mut last_pixel_x, mut last_pixel_y) = get_plate_pixel_position(*first, scenery);
-                
                 for item in others {
-
                     let (pixel_x, pixel_y) = get_plate_pixel_position(*item, scenery);
-                    
-                    scenery_image = drawing::draw_line_segment(&scenery_image, (last_pixel_x as f32, last_pixel_y as f32), (pixel_x as f32, pixel_y as f32), color);
-                    
+
+                    scenery_image = drawing::draw_line_segment(
+                        &scenery_image,
+                        (last_pixel_x as f32, last_pixel_y as f32),
+                        (pixel_x as f32, pixel_y as f32),
+                        color,
+                    );
+
                     last_pixel_x = pixel_x;
                     last_pixel_y = pixel_y;
                 }
             }
         }
     }
-    
+
     Ok(scenery_image)
 }
 
@@ -68,21 +85,30 @@ fn rand_color() -> Rgb<u8> {
     Rgb([rng.gen(), rng.gen(), rng.gen()])
 }
 
-pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, String> {
+pub fn render(village: &Village) -> Result<RenderedScenery, String> {
     let background_image = image::open("assets/scenery.png").unwrap();
     let mut buffer = background_image.into_rgba8();
 
     // buffer = draw_debug_grid(&buffer, scenery);
 
-    let upper_left_corner_cell = Cell { x: 0, y: scenery.params().plate_height_cells as i16 };
+    let scenery = village.scenery();
 
-    let mut buildings = village.iter_buildings().collect::<Vec<_>>();
-    buildings.sort_by(|b1, b2| {
-        let b1 = b1.1.pos;
-        let b2 = b2.1.pos;
+    let upper_left_corner_cell = Cell {
+        x: 0,
+        y: scenery.params().plate_height_cells as i16,
+    };
 
-        let distance_b1 = (((upper_left_corner_cell.x - b1.x) as f32).powi(2) + ((upper_left_corner_cell.y - b1.y) as f32).powi(2)).sqrt();
-        let distance_b2 = (((upper_left_corner_cell.x - b2.x) as f32).powi(2) + ((upper_left_corner_cell.y - b2.y) as f32).powi(2)).sqrt();
+    let mut components = village.iter_components().collect::<Vec<_>>();
+    components.sort_by(|b1, b2| {
+        let building_1_cell = b1.1;
+        let building_2_cell = b2.1;
+
+        let distance_b1 = (((upper_left_corner_cell.x - building_1_cell.x) as f32).powi(2)
+            + ((upper_left_corner_cell.y - building_1_cell.y) as f32).powi(2))
+            .sqrt();
+        let distance_b2 = (((upper_left_corner_cell.x - building_2_cell.x) as f32).powi(2)
+            + ((upper_left_corner_cell.y - building_2_cell.y) as f32).powi(2))
+            .sqrt();
 
         if distance_b1 < distance_b2 {
             Ordering::Less
@@ -93,21 +119,23 @@ pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, S
         }
     });
 
-    for (_, building) in buildings.clone() {
-        draw_plot(&mut buffer, scenery, building.building_type.plot_size(), building.pos);
+    for (_, cell, component) in components.clone() {
+        if let ComponentType::Building(building) = &component.kind {
+            draw_plot(
+                &mut buffer,
+                scenery,
+                building.building_type.plot_size(),
+                cell,
+            );
+        }
     }
 
     let mut labels = Vec::new();
 
-
-    for (_, building) in buildings {
-        let bounds = render_building(&mut buffer, scenery, building);
-        let class = BUILDINGS_ASSETS_FILENAMES.iter().position(|filename| filename == &building.building_type.get_file_name(building.level)).unwrap();
-
-        labels.push(Label {
-            bounds,
-            class,
-        })
+    for (_, cell, component) in components {
+        if let Some(label) = render_component(&mut buffer, village, cell, component) {
+            labels.push(label)
+        }
     }
 
     Ok(RenderedScenery {
@@ -116,106 +144,30 @@ pub fn render(scenery: &Scenery, village: &Village) -> Result<RenderedScenery, S
     })
 }
 
-const BUILDING_ALIGNMENT_SHIFT_Y: i64 = 5;
+fn render_component(buffer: &mut Image, village: &Village, cell: Cell, component: &Component) -> Option<Label> {
+    match &component.kind {
+        ComponentType::Building(building) => {
+            let bounds = render_building(buffer, village.scenery(), cell, component.life_points, building);
+            let class = BUILDINGS_ASSETS_FILENAMES
+                .iter()
+                .position(|filename| filename == &building.building_type.get_file_name(building.level))
+                .unwrap();
+            Some(Label { bounds, class })
+        }
+        ComponentType::Wall(wall) => {
+            render_wall(buffer, village, cell, wall);
+            None
+        }
+    }
+}
 
-
-fn render_building(scenery_image: &mut Image, scenery: &Scenery, building: &Building) -> Bounds {
-    let building_type = &building.building_type;
-    let cell = building.pos;
-
-    let building_image_path = building_type.get_file_path(building.level);
-    let building_image = image::open(building_image_path).unwrap();
-    let building_image = building_image.as_rgba8().unwrap();
-
-    let building_size = building_type.self_size();
-
-    let building_size_width = scenery.cell_width() * building_size.cell_diameter() as f32;
-
-    let plot_size = building_type.plot_size();
-
-    let plot_size_width = scenery.cell_width() * plot_size.cell_diameter() as f32;
-    let plot_size_height = scenery.cell_height() * plot_size.cell_diameter() as f32;
-
-    let width_margin = if building_size == PlotSize::X1Invisible { 0f32 } else { scenery.cell_width() };
-
-    let target_width = (building_size_width * 2f32 - width_margin) as u32;
-
+pub(self) fn resize_image_by_width(image: &Image, target_width: u32) -> Image {
     let width = target_width;
-    let height = (building_image.height() as f32 * (target_width as f32 / building_image.width() as f32)) as u32;
+    let height = (image.height() as f32
+        * (target_width as f32 / image.width() as f32)) as u32;
 
-    let building_image = image::imageops::resize(
-        building_image,
-        width,
-        height,
-        FilterType::Nearest,
-    );
-
-    let (x, y) = get_plate_pixel_position(cell, scenery);
-
-    let plot_pos_x = x;
-    let plot_pos_y = y - plot_size_height as i64;
-
-    let plot_center_x = plot_pos_x + plot_size_width as i64;
-    let plot_center_y = plot_pos_y + plot_size_height as i64;
-
-    let image_center_x = x + building_image.width() as i64 / 2;
-    let image_center_y = y + building_image.height() as i64 / 2 + building_image.height() as i64 / BUILDING_ALIGNMENT_SHIFT_Y;
-
-    let translated_image_x = x + plot_center_x - image_center_x;
-    let translated_image_y = y + plot_center_y - image_center_y - (scenery.cell_height() / 2f32) as i64;
-
-    image::imageops::overlay(scenery_image, &building_image, translated_image_x, translated_image_y);
-    #[cfg(debug_assertions)] {
-        *scenery_image = drawing::draw_cross(scenery_image, Rgba([255, 0, 0, 255]), plot_center_x as i32, plot_center_y as i32);
-        *scenery_image = drawing::draw_cross(scenery_image, Rgba([0, 255, 0, 255]), x as i32, y as i32);
-        *scenery_image = drawing::draw_cross(scenery_image, Rgba([0, 0, 255, 255]), image_center_x as i32, image_center_y as i32);
-        *scenery_image = drawing::draw_cross(scenery_image, Rgba([0, 255, 255, 255]), plot_pos_x as i32, plot_pos_y as i32);
-    }
-
-    let x_center_pixels = translated_image_x + building_image.width() as i64 / 2;
-    let y_center_pixels = translated_image_y + building_image.height() as i64 / 2;
-
-    if let Some(lp) = building.life_points {
-        let font = FontRef::try_from_slice(include_bytes!("../assets/font.ttf")).unwrap();
-
-        let (color, text) = if lp == 0.0 {
-            (Rgba([255, 0, 0, 255]), "DEAD".to_string())
-        } else {
-            (Rgba([255, 255, 255, 255]), lp.to_string())
-        };
-
-        *scenery_image = drawing::draw_text(scenery_image, color, plot_center_x as i32, plot_center_y as i32, 20.0, &font, &text);
-    }
-
-    Bounds {
-        x_center: x_center_pixels as f32 / scenery_image.width() as f32,
-        y_center: y_center_pixels as f32 / scenery_image.height() as f32,
-        height: building_image.height() as f32 / scenery_image.height() as f32,
-        width: building_image.width() as f32 / scenery_image.width() as f32,
-    }
+    image::imageops::resize(image, width, height, FilterType::Nearest)
 }
-
-
-fn draw_plot(scenery_image: &mut Image, scenery: &Scenery, plot_size: PlotSize, cell: Cell) {
-    let Some(plot_file) = plot_size.plot_file() else { return };
-
-    let plot = image::open(plot_file).unwrap();
-    let plot = plot.as_rgba8().unwrap();
-
-    let width_radius = (scenery.cell_width() * plot_size.cell_diameter() as f32) as u32;
-    let height_radius = (scenery.cell_height() * plot_size.cell_diameter() as f32) as u32;
-
-    let resized_image = image::imageops::resize(
-        plot,
-        width_radius * 2,
-        height_radius * 2,
-        FilterType::Nearest,
-    );
-    let (x, y) = get_plate_pixel_position(cell, scenery);
-
-    image::imageops::overlay(scenery_image, &resized_image, x, y - height_radius as i64)
-}
-
 
 fn draw_debug_grid(buffer: &Image, scenery: &Scenery) -> Image {
     let bottom_right_corner = scenery.params().bottom_right_corner;
@@ -223,12 +175,36 @@ fn draw_debug_grid(buffer: &Image, scenery: &Scenery) -> Image {
     let upper_right_corner = scenery.params().upper_right_corner;
     let upper_left_corner = scenery.params().upper_left_corner;
 
-    let buffer = drawing::draw_cross(buffer, Rgb([255, 0, 0]).to_rgba(), bottom_right_corner.x, bottom_right_corner.y);
-    let buffer = drawing::draw_cross(&buffer, Rgb([0, 255, 0]).to_rgba(), bottom_left_corner.x, bottom_left_corner.y);
-    let buffer = drawing::draw_cross(&buffer, Rgb([0, 0, 255]).to_rgba(), upper_right_corner.x, upper_right_corner.y);
-    let mut buffer = drawing::draw_cross(&buffer, Rgb([255, 255, 0]).to_rgba(), upper_left_corner.x, upper_left_corner.y);
+    let buffer = drawing::draw_cross(
+        buffer,
+        Rgb([255, 0, 0]).to_rgba(),
+        bottom_right_corner.x,
+        bottom_right_corner.y,
+    );
+    let buffer = drawing::draw_cross(
+        &buffer,
+        Rgb([0, 255, 0]).to_rgba(),
+        bottom_left_corner.x,
+        bottom_left_corner.y,
+    );
+    let buffer = drawing::draw_cross(
+        &buffer,
+        Rgb([0, 0, 255]).to_rgba(),
+        upper_right_corner.x,
+        upper_right_corner.y,
+    );
+    let mut buffer = drawing::draw_cross(
+        &buffer,
+        Rgb([255, 255, 0]).to_rgba(),
+        upper_left_corner.x,
+        upper_left_corner.y,
+    );
 
-    let colors = [Rgba([255, 0, 0, 255]), Rgba([0, 255, 0, 255]), Rgba([0, 0, 255, 255])];
+    let colors = [
+        Rgba([255, 0, 0, 255]),
+        Rgba([0, 255, 0, 255]),
+        Rgba([0, 0, 255, 255]),
+    ];
     let mut c = 0;
 
     for x in 0..scenery.params().plate_width_cells as i16 {
@@ -241,26 +217,45 @@ fn draw_debug_grid(buffer: &Image, scenery: &Scenery) -> Image {
     buffer
 }
 
-fn get_plate_pixel_position(cell: Cell, scenery: &Scenery) -> (i64, i64) {
-    let left_corner_x = scenery.get_plate_x_axis(cell.x as f32 * scenery.cell_height(), cell.y as f32 * scenery.cell_width() - 3f32);
-    let left_corner_y = scenery.get_plate_y_axis(cell.x as f32 * scenery.cell_height(), cell.y as f32 * scenery.cell_width() - 3f32);
+fn get_plate_pixel_position(pos: Pos, scenery: &Scenery) -> (i64, i64) {
+    let left_corner_x = scenery.get_plate_x_axis(
+        pos.x * scenery.cell_height(),
+        pos.y * scenery.cell_width() - 3f32,
+    );
+    let left_corner_y = scenery.get_plate_y_axis(
+        pos.x * scenery.cell_height(),
+        pos.y * scenery.cell_width() - 3f32,
+    );
 
     (left_corner_x as i64, left_corner_y as i64)
 }
 
-fn draw_cell<I: GenericImage>(image: &I, scenery: &Scenery, cell: Cell, color: I::Pixel) -> imageproc::definitions::Image<I::Pixel> {
-    let (left_corner_x, left_corner_y) = get_plate_pixel_position(cell, scenery);
+fn draw_cell<I: GenericImage>(
+    image: &I,
+    scenery: &Scenery,
+    cell: Cell,
+    color: I::Pixel,
+) -> imageproc::definitions::Image<I::Pixel> {
+    let (left_corner_x, left_corner_y) = get_plate_pixel_position(cell.to_pos(), scenery);
 
     let cell_width = scenery.cell_width();
     let cell_height = scenery.cell_height();
 
     let poly = [
         Point::new(left_corner_x as i32, left_corner_y as i32),
-        Point::new((left_corner_x as f32 + cell_width) as i32, (left_corner_y as f32 + cell_height) as i32),
-        Point::new((left_corner_x as f32 + cell_width * 2f32) as i32, left_corner_y as i32),
-        Point::new((left_corner_x as f32 + cell_width) as i32, (left_corner_y as f32 - cell_height) as i32)
+        Point::new(
+            (left_corner_x as f32 + cell_width) as i32,
+            (left_corner_y as f32 + cell_height) as i32,
+        ),
+        Point::new(
+            (left_corner_x as f32 + cell_width * 2f32) as i32,
+            left_corner_y as i32,
+        ),
+        Point::new(
+            (left_corner_x as f32 + cell_width) as i32,
+            (left_corner_y as f32 - cell_height) as i32,
+        ),
     ];
 
     drawing::draw_polygon(image, &poly, color)
 }
-
